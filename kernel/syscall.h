@@ -23,3 +23,4 @@
 
 //Lab syscall: System calls
 #define SYS_trace  22
+#define SYS_sysinfo 23

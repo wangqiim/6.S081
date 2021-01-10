@@ -440,3 +440,34 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// 根据satp页表求出有效的3级页表
+void vmprint(pagetable_t pagetable) {
+  // page table 0x0000000087f6e000
+  printf("page table %p\n", pagetable);
+  for (int i = 0; i < 512; i++) {
+    pte_t pte_high = pagetable[i];
+    if (pte_high & PTE_V) {
+      // ..0: pte 0x0000000021fda801 pa 0x0000000087f6a000
+      uint64 child_high = PTE2PA(pte_high);
+      printf("..%d: pte %p pa %p\n", i, pte_high, child_high);
+      for (int j = 0; j < 512; j++) {
+        pte_t pte_mid = ((pagetable_t)child_high)[j];
+        if (pte_mid & PTE_V) {
+          uint64 child_mid = PTE2PA(pte_mid);
+          // .. ..0: pte 0x0000000021fda401 pa 0x0000000087f69000
+          printf(".. ..%d: pte %p pa %p\n", j, pte_mid, child_mid);
+          for (int k = 0; k < 512; k++) {
+            pte_t pte_low = ((pagetable_t)child_mid)[k];
+            if (pte_low & PTE_V) {
+              // .. .. ..0: pte 0x0000000021fdac1f pa 0x0000000087f6b000
+              uint64 child_low = PTE2PA(pte_low);
+              printf(".. .. ..%d: pte %p pa %p\n", k, pte_low, child_low);
+            }
+          }
+        }
+      }
+    }
+  }
+  return;
+}

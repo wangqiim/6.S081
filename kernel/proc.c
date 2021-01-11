@@ -267,6 +267,7 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+  kvmmapuser(p->kpagetable, p->pagetable, p->sz, 0);
 
   release(&p->lock);
 }
@@ -284,6 +285,8 @@ growproc(int n)
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    // 这里极大的优化了运行速度
+    kvmmapuser(p->kpagetable, p->pagetable, sz, p->sz);
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
@@ -332,6 +335,8 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+
+  kvmmapuser(np->kpagetable, np->pagetable, np->sz, 0);
 
   release(&np->lock);
 

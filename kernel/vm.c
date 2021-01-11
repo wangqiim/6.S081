@@ -381,23 +381,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
-
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+  return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -405,42 +389,8 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 // until a '\0', or max.
 // Return 0 on success, -1 on error.
 int
-copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
-{
-  uint64 n, va0, pa0;
-  int got_null = 0;
-
-  while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > max)
-      n = max;
-
-    char *p = (char *) (pa0 + (srcva - va0));
-    while(n > 0){
-      if(*p == '\0'){
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
-
-    srcva = va0 + PGSIZE;
-  }
-  if(got_null){
-    return 0;
-  } else {
-    return -1;
-  }
+copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max) {
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 // 根据satp页表求出有效的3级页表
@@ -495,4 +445,17 @@ pagetable_t mykvminit() {
   myvmmap(kpagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
   myvmmap(kpagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
   return kpagetable;
+}
+
+// 复制user页表到内核页表
+void kvmmapuser(pagetable_t kpagetable, pagetable_t upagetable, int new_size, int old_size) {
+  if (new_size > PLIC)
+    panic("kvmmapuser: growing larger than the PLIC address");
+  for (int i = old_size; i < new_size; i += PGSIZE) {
+    pte_t* upte = walk(upagetable, i, 0);
+    pte_t* kpte = walk(kpagetable, i, 1);
+    // 如果不设置pte只能在supervisor mode模式使用。言外之意如果设置了只能在用户模式用?
+    // (A page with PTE_U set cannot be accessed in kernel mode.)
+    *kpte = (*upte) & (~PTE_U);
+  }
 }

@@ -77,8 +77,17 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2) {
+    if (p->alarm_interval != 0) {
+      p->ticks++;
+      if (p->ticks == p->alarm_interval) {
+        p->ret_trapframe = *p->trapframe;
+        p->trapframe->epc = p->handler;
+        //p->ticks = 0; //此处千万不能清零，留给sys_sigreturn去做，不然如果handler是一个耗时函数，就会反复触发。不符合题意。
+      }
+    }
     yield();
+  }
 
   usertrapret();
 }

@@ -484,3 +484,17 @@ sys_pipe(void)
   }
   return 0;
 }
+
+
+uint64 sys_sigalarm(void) {
+  if(argint(0, &myproc()->alarm_interval) < 0 || argaddr(1, &myproc()->handler) < 0)
+    return -1;
+  myproc()->ticks = 0;
+  return 0;
+}
+
+uint64 sys_sigreturn(void) {
+  *myproc()->trapframe = myproc()->ret_trapframe;
+  myproc()->ticks = 0;
+  return 0;
+}

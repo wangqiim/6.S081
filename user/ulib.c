@@ -134,3 +134,66 @@ memcpy(void *dst, const void *src, uint n)
 {
   return memmove(dst, src, n);
 }
+
+int
+Fork(void)
+{
+  int pid;
+
+  pid = fork();
+  if(pid == -1) {
+    exit(1);
+  }
+  return pid;
+}
+
+int
+Read(int fd, void *buf, int n) {
+  int ret = read(fd, buf, n);
+  if (ret < 0) {
+    exit(1);
+  }
+  return ret;
+}
+
+int
+Write(int fd, void *buf, int n) {
+  int ret = write(fd, buf, n);
+  if (ret < n) {
+    exit(1);
+  }
+  return ret;
+}
+
+int
+Sleep(int n) {
+  if (sleep(n) != 0) {
+    exit(1);
+  }
+  return 0;
+}
+
+int
+Open(const char* path, int x) {
+  int fd;
+  if ((fd = open(path, x)) < 0) {
+      exit(1);
+  }
+  return fd;
+}
+
+int
+Fstat(int fd, struct stat* st) {
+  if (fstat(fd, st) < 0) {
+      exit(1);
+  }
+  return 0;
+}
+
+int
+Close(int fd) {
+  if (close(fd) != 0) {
+    exit(1);
+  }
+  return 0;
+}

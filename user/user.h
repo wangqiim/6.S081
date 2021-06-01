@@ -40,3 +40,12 @@ void free(void*);
 int atoi(const char*);
 int memcmp(const void *, const void *, uint);
 void *memcpy(void *, const void *, uint);
+
+// systemcall wrapper
+int Fork(void);
+int Read(int, void*, int);
+int Write(int, void*, int);
+int Sleep(int);
+int Open(const char*, int);
+int Fstat(int, struct stat*);
+int Close(int);

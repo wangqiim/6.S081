@@ -187,7 +187,12 @@ void            prockvmunmap(pagetable_t, uint64, uint64);
 void            freewalk(pagetable_t);
 uint64          kwalkaddr(uint64);
 pte_t           *walk(pagetable_t, uint64, int);
-// void            debugfreewalk(pagetable_t pagetable, int level);
+void            freewalkwithoutpa(pagetable_t);
+int             copyuserpgtbl2kpgtbl(pagetable_t, pagetable_t, uint64, uint64);
+
+// vmcopin.c
+int copyin_new(pagetable_t, char *, uint64, uint64);
+int copyinstr_new(pagetable_t, char *, uint64, uint64);
 
 // plic.c
 void            plicinit(void);

@@ -165,11 +165,10 @@ freeproc(struct proc *p)
     *pte = 0;
     p->kstack = 0;
   }
+  // printf("[freeproc call] oldsz = %p, newsz = %p\n", p->sz, 0);
+  copyuserpgtbl2kpgtbl(p->pagetable, p->kpagetable, p->sz, 0);
   if(p->kpagetable) {
-    prockvmclear(p->kpagetable);
-    // direct map has been clear, so Recursively free can't access psysical address
-    freewalk(p->kpagetable);
-    // freewalk(p->kpagetable);
+    freewalkwithoutpa(p->kpagetable);
   }
   p->kpagetable = 0;
   p->sz = 0;
@@ -250,6 +249,8 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  // printf("[userinit call] oldsz = %p, newsz = %p\n", 0, p->sz);
+  copyuserpgtbl2kpgtbl(p->pagetable, p->kpagetable, 0, p->sz);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -279,6 +280,8 @@ growproc(int n)
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
+  // printf("[growproc call] oldsz = %p, newsz = %p\n", p->sz, p->sz + n);
+  copyuserpgtbl2kpgtbl(p->pagetable, p->kpagetable, p->sz, p->sz + n);
   p->sz = sz;
   return 0;
 }
@@ -324,6 +327,8 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+  // printf("[fork call] oldsz = %p, newsz = %p\n", 0, np->sz);
+  copyuserpgtbl2kpgtbl(np->pagetable, np->kpagetable, 0, np->sz);
 
   release(&np->lock);
 

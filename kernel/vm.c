@@ -308,27 +308,19 @@ freewalk(pagetable_t pagetable)
   kfree((void*)pagetable);
 }
 
-// only use for debug
-static uint64 debugarray[3];
+// Recursively free page-table pages.
+// All free physical address.
 void
-debugfreewalk(pagetable_t pagetable, int level)
+freewalkwithoutpa(pagetable_t pagetable)
 {
   // there are 2^9 = 512 PTEs in a page table.
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
-    debugarray[level] = i;
     if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
-      debugfreewalk((pagetable_t)child, level - 1);
+      freewalkwithoutpa((pagetable_t)child);
       pagetable[i] = 0;
-    } else if(pte & PTE_V){
-      uint64 va = 0;
-      for (int i = 0; i < 3; i++) {
-        va += (debugarray[i] << (i * 9 + 12));
-      }
-      printf("va = %p\n", va);
-      panic("freewalk: leaf");
     }
   }
   kfree((void*)pagetable);
@@ -424,23 +416,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
-
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+  return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -450,40 +426,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
-  uint64 n, va0, pa0;
-  int got_null = 0;
-
-  while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > max)
-      n = max;
-
-    char *p = (char *) (pa0 + (srcva - va0));
-    while(n > 0){
-      if(*p == '\0'){
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
-
-    srcva = va0 + PGSIZE;
-  }
-  if(got_null){
-    return 0;
-  } else {
-    return -1;
-  }
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 void
@@ -549,29 +492,16 @@ prockvmmap(pagetable_t pgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
     panic("prockvmmap");
 }
 
-/*
- * clear a direct-map page table for correspond process
- */
-void
-prockvmclear(pagetable_t kpagetable)
-{
-  prockvmunmap(kpagetable, UART0, PGSIZE);
-  prockvmunmap(kpagetable, VIRTIO0, PGSIZE);
-  prockvmunmap(kpagetable, CLINT, 0x10000);
-  prockvmunmap(kpagetable, PLIC, 0x400000);
-  prockvmunmap(kpagetable, KERNBASE, (uint64)etext-KERNBASE);
-  prockvmunmap(kpagetable, (uint64)etext, PHYSTOP-(uint64)etext);
-  prockvmunmap(kpagetable, TRAMPOLINE, PGSIZE);
-}
-
 void
 prockvmunmap(pagetable_t pagetable, uint64 va, uint64 size) {
   uint64 a, last;
   pte_t *pte;
 
+  // printf("va = %p, size = %p unmap 1 page\n", va, size);
   a = PGROUNDDOWN(va);
-  last = PGROUNDDOWN(va + size - 1);
+  last = PGROUNDDOWN(va + size);
   for(;;){
+    // printf("a = %p, last = %p unmap 1 page\n", a, last);
     if((pte = walk(pagetable, a, 1)) == 0)
       panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0)
@@ -579,14 +509,11 @@ prockvmunmap(pagetable_t pagetable, uint64 va, uint64 size) {
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     *pte = 0;
+    a += PGSIZE;
     if(a == last)
       break;
-    a += PGSIZE;
   }
 }
-
-
-
 
 // Switch h/w page table register to the porc's kernel's page table,
 // and enable paging.
@@ -595,4 +522,29 @@ prockvminithart(pagetable_t pgtbl)
 {
   w_satp(MAKE_SATP(pgtbl));
   sfence_vma();
+}
+
+int
+copyuserpgtbl2kpgtbl(pagetable_t upgtbl, pagetable_t kpgtbl, uint64 oldsz, uint64 newsz)
+{
+  // printf("[copyuserpgtbl2kpgtbl call] oldsz = %p, newsz = %p\n", oldsz, newsz);
+  if (newsz >= PLIC) {
+    panic("overlapping");
+  }
+  if (newsz > oldsz) {
+    for (uint sva = oldsz; sva < newsz; sva += PGSIZE) {
+      // uint pa = walkaddr(upgtbl, sva);
+      pte_t *upte = walk(upgtbl, sva, 0);
+      pte_t *pte = walk(kpgtbl, sva, 1);
+      // add or PTE_V because userstack guard page not in upgtbl, it is unconvenient
+      *pte = (*upte) & ~(PTE_U);
+    }
+  } else if (newsz < oldsz) {
+    // printf("[copyuserpgtbl2kpgtbl call] oldsz = %p, newsz = %p\n", oldsz, newsz);
+    // if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)) {
+    //   uint64 size = (PGROUNDUP(oldsz) - PGROUNDUP(newsz));
+    //   prockvmunmap(kpgtbl, PGROUNDUP(newsz), size);
+    // }
+  }
+  return 0;
 }

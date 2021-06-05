@@ -186,6 +186,7 @@ void            prockvmmap(pagetable_t, uint64, uint64, uint64, int);
 void            prockvmunmap(pagetable_t, uint64, uint64);
 void            freewalk(pagetable_t);
 uint64          kwalkaddr(uint64);
+pte_t           *walk(pagetable_t, uint64, int);
 // void            debugfreewalk(pagetable_t pagetable, int level);
 
 // plic.c

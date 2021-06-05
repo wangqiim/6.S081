@@ -30,16 +30,6 @@ procinit(void)
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
-
-      // Allocate a page for the process's kernel stack.
-      // Map it high in memory, followed by an invalid
-      // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
   }
   kvminithart();
 }
@@ -135,10 +125,15 @@ found:
   // p->kstack = va;
   */
 
-  // map a page for the process's kernel stack.
+
+  // Allocate a page for the process's kernel stack.
+  // Map it high in memory, followed by an invalid
+  // guard page.
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
   uint64 va = KSTACK((int) (p - proc));
-  uint64 pa = kwalkaddr(va);
-  prockvmmap(p->kpagetable, va, pa, PGSIZE, PTE_R | PTE_W);
+  prockvmmap(p->kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   p->kstack = va;
 
   // Set up new context to start executing at forkret,
@@ -162,8 +157,15 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+  if (p->kstack) {
+    pte_t* pte = walk(p->kpagetable, p->kstack, 0);
+    if (pte == 0)
+      panic("freeproc: free kstack");
+    kfree((void*)PTE2PA(*pte));
+    *pte = 0;
+    p->kstack = 0;
+  }
   if(p->kpagetable) {
-    prockvmunmap(p->kpagetable, p->kstack, PGSIZE);
     prockvmclear(p->kpagetable);
     // direct map has been clear, so Recursively free can't access psysical address
     freewalk(p->kpagetable);

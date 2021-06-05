@@ -119,6 +119,11 @@ exec(char *path, char **argv)
   if (p->pid==1) {
     vmprint(p->pagetable);
   }
+  // printf("[exec call refresh oldsz] oldsz = %p, newsz = %p\n", 0, sz);
+  copyuserpgtbl2kpgtbl(pagetable, p->kpagetable, oldsz, 0);
+  // printf("[exec call] oldsz = %p, newsz = %p\n", 0, sz);
+  copyuserpgtbl2kpgtbl(pagetable, p->kpagetable, 0, sz);
+
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:

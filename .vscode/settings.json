@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "param.h": "c",
+        "typeinfo": "c",
+        "riscv.h": "c",
+        "defs.h": "c"
+    }
+}

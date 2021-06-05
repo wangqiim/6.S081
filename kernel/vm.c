@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -111,6 +113,23 @@ walkaddr(pagetable_t pagetable, uint64 va)
   return pa;
 }
 
+uint64
+kwalkaddr(uint64 va) {
+  pte_t *pte;
+  uint64 pa;
+
+  if(va >= MAXVA)
+    return 0;
+
+  pte = walk(kernel_pagetable, va, 0);
+  if(pte == 0)
+    return 0;
+  if((*pte & PTE_V) == 0)
+    return 0;
+  pa = PTE2PA(*pte);
+  return pa;
+}
+
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
@@ -132,7 +151,7 @@ kvmpa(uint64 va)
   pte_t *pte;
   uint64 pa;
   
-  pte = walk(kernel_pagetable, va, 0);
+  pte = walk(myproc()->kpagetable, va, 0);
   if(pte == 0)
     panic("kvmpa");
   if((*pte & PTE_V) == 0)
@@ -283,6 +302,32 @@ freewalk(pagetable_t pagetable)
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
     } else if(pte & PTE_V){
+      panic("freewalk: leaf");
+    }
+  }
+  kfree((void*)pagetable);
+}
+
+// only use for debug
+static uint64 debugarray[3];
+void
+debugfreewalk(pagetable_t pagetable, int level)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    debugarray[level] = i;
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      debugfreewalk((pagetable_t)child, level - 1);
+      pagetable[i] = 0;
+    } else if(pte & PTE_V){
+      uint64 va = 0;
+      for (int i = 0; i < 3; i++) {
+        va += (debugarray[i] << (i * 9 + 12));
+      }
+      printf("va = %p\n", va);
       panic("freewalk: leaf");
     }
   }
@@ -465,4 +510,89 @@ vmprint(pagetable_t pagetable)
       }
     }
   }
+}
+
+/*
+ * create a direct-map page table for correspond process
+ */
+pagetable_t
+prockvminit()
+{
+  pagetable_t kpgtbl = (pagetable_t)kalloc();
+  if (kpgtbl == 0) {
+    panic("prockvmmap");
+  }
+  memset(kpgtbl, 0, PGSIZE);
+
+  // uart registers
+  prockvmmap(kpgtbl, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  // virtio mmio disk interface
+  prockvmmap(kpgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  // CLINT
+  prockvmmap(kpgtbl, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  // PLIC
+  prockvmmap(kpgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  // map kernel text executable and read-only.
+  prockvmmap(kpgtbl, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  // map kernel data and the physical RAM we'll make use of.
+  prockvmmap(kpgtbl, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  prockvmmap(kpgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+  return kpgtbl;
+}
+
+void
+prockvmmap(pagetable_t pgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(pgtbl, va, sz, pa, perm) != 0)
+    panic("prockvmmap");
+}
+
+/*
+ * clear a direct-map page table for correspond process
+ */
+void
+prockvmclear(pagetable_t kpagetable)
+{
+  prockvmunmap(kpagetable, UART0, PGSIZE);
+  prockvmunmap(kpagetable, VIRTIO0, PGSIZE);
+  prockvmunmap(kpagetable, CLINT, 0x10000);
+  prockvmunmap(kpagetable, PLIC, 0x400000);
+  prockvmunmap(kpagetable, KERNBASE, (uint64)etext-KERNBASE);
+  prockvmunmap(kpagetable, (uint64)etext, PHYSTOP-(uint64)etext);
+  prockvmunmap(kpagetable, TRAMPOLINE, PGSIZE);
+}
+
+void
+prockvmunmap(pagetable_t pagetable, uint64 va, uint64 size) {
+  uint64 a, last;
+  pte_t *pte;
+
+  a = PGROUNDDOWN(va);
+  last = PGROUNDDOWN(va + size - 1);
+  for(;;){
+    if((pte = walk(pagetable, a, 1)) == 0)
+      panic("uvmunmap: walk");
+    if((*pte & PTE_V) == 0)
+      panic("uvmunmap: not mapped");
+    if(PTE_FLAGS(*pte) == PTE_V)
+      panic("uvmunmap: not a leaf");
+    *pte = 0;
+    if(a == last)
+      break;
+    a += PGSIZE;
+  }
+}
+
+
+
+
+// Switch h/w page table register to the porc's kernel's page table,
+// and enable paging.
+void
+prockvminithart(pagetable_t pgtbl)
+{
+  w_satp(MAKE_SATP(pgtbl));
+  sfence_vma();
 }

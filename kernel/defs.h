@@ -179,6 +179,14 @@ int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 void            vmprint(pagetable_t);
+pagetable_t     prockvminit();
+void            prockvminithart(pagetable_t);
+void            prockvmclear(pagetable_t);
+void            prockvmmap(pagetable_t, uint64, uint64, uint64, int);
+void            prockvmunmap(pagetable_t, uint64, uint64);
+void            freewalk(pagetable_t);
+uint64          kwalkaddr(uint64);
+// void            debugfreewalk(pagetable_t pagetable, int level);
 
 // plic.c
 void            plicinit(void);

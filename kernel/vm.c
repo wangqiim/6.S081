@@ -180,10 +180,11 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     panic("uvmunmap: not aligned");
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
+    // lazy malloc
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      // panic("uvmunmap: walk");
+      continue;
     if((*pte & PTE_V) == 0)
-      // lazy malloc
       // panic("uvmunmap: not mapped");
       continue;
     if(PTE_FLAGS(*pte) == PTE_V)
@@ -316,10 +317,13 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
+      // lazy malloc
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      continue;
+      // panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      continue;
+      // panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -443,18 +447,40 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   }
 }
 
+// if size = 0, just map a page
 // return 0, lazy malloc success
 // return -1, lazy malloc fail
 uint64
-lazyuvmalloc(pagetable_t pagetable, uint64 va)
+lazyuvmalloc(pagetable_t pagetable, uint64 va, uint64 size)
 {
-  char *mem = kalloc();
-  if (mem == 0) {
-    return -1;
-  }
-  if (mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0) {
-    kfree(mem);
-    return -1;
+  // just map one page
+  if (size == 0) {
+    char *mem = kalloc();
+    if (mem == 0) {
+      return -1;
+    }
+    memset(mem, 0, PGSIZE);
+    if (mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0) {
+      kfree(mem);
+      return -1;
+    }
+  } else {
+    char *mem;
+    for (uint64 i = 0; i < size; i += PGSIZE) {
+      // maybe continue not break;
+      if (walkaddr(pagetable, va + i) != 0)
+        break;
+      mem = kalloc();
+      if(mem == 0){
+        // it is not easy to deal with
+        panic("lazyuvmalloc range fail");
+      }
+      memset(mem, 0, PGSIZE);
+      if (mappages(pagetable, PGROUNDDOWN(va + i), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0) {
+        kfree(mem);
+        return -1;
+      }
+    }
   }
   return 0;
 }

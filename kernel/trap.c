@@ -68,12 +68,18 @@ usertrap(void)
   } else if((which_dev = devintr()) != 0){
     // ok
   } else if (r_scause() == 13 || r_scause() == 15) {
-    // page fault
     uint64 va = r_stval();
-    if (PGROUNDDOWN(va) >= p->sz)
-      panic("page fault: overbound!");
-    if (lazyuvmalloc(p->pagetable, va) != 0) {
-      panic("page fault: lazy malloc fail!");
+    if (va >= p->sz) {
+      p->killed = 1;
+    } else {
+      // check if visit guard kill it!
+      pte_t *pte = walk(p->pagetable, va, 0);
+      if (pte != 0 && (*pte & PTE_V) != 0 && ((*pte & PTE_U) == 0)) {
+        p->killed = 1;
+      } else if (lazyuvmalloc(p->pagetable, PGROUNDDOWN(va), 0) != 0) {
+        // panic("page fault: lazy malloc fail!");
+        p->killed = 1;
+      }
     }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);

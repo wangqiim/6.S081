@@ -75,6 +75,10 @@ sys_read(void)
 
   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
     return -1;
+  // TODO: more check
+  if(n != 0 && p <= myproc()->sz && p >= 0 && n > 0) {
+    lazyuvmalloc(myproc()->pagetable, p, n);
+  }
   return fileread(f, p, n);
 }
 
@@ -87,7 +91,10 @@ sys_write(void)
 
   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
     return -1;
-
+  // TODO: more check p + n and user-stack
+  if(n != 0 && p <= myproc()->sz  && p >= 0 && n > 0) {
+    lazyuvmalloc(myproc()->pagetable, p, n);
+  }
   return filewrite(f, p, n);
 }
 
@@ -464,6 +471,13 @@ sys_pipe(void)
 
   if(argaddr(0, &fdarray) < 0)
     return -1;
+  
+  // TODO: more check
+  if (fdarray > p->sz) {
+    return -1;
+  }
+  lazyuvmalloc(myproc()->pagetable, fdarray, 8);
+
   if(pipealloc(&rf, &wf) < 0)
     return -1;
   fd0 = -1;

@@ -2695,7 +2695,7 @@ main(int argc, char *argv[])
     {reparent2, "reparent2"},
     {pgbug, "pgbug" },
     {sbrkbugs, "sbrkbugs" },
-    // {badwrite, "badwrite" },
+    /////// {badwrite, "badwrite" },
     {badarg, "badarg" },
     {reparent, "reparent" },
     {twochildren, "twochildren"},
@@ -2777,6 +2777,9 @@ main(int argc, char *argv[])
       if(!run(t->f, t->s))
         fail = 1;
     }
+    // if((free1 = countfree()) < free0) {
+    //   printf("!!!!!!\n");
+    // }
   }
 
   if(fail){

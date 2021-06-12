@@ -63,6 +63,17 @@ mycpu(void) {
   return c;
 }
 
+int
+mycpuindex(void) {
+  struct cpu *c= mycpu();
+  for (int i = 0; i < NCPU; i++) {
+    if (c == &cpus[i]) {
+      return i;
+    }
+  }
+  panic("mycpuindex");
+}
+
 // Return the current struct proc *, or zero if none.
 struct proc*
 myproc(void) {

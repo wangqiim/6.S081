@@ -308,7 +308,32 @@ sys_open(void)
       end_op();
       return -1;
     }
-    ilock(ip);
+    if((omode & O_NOFOLLOW) == 0){ // recursively follow it
+      int depth = 11;
+      while(--depth){
+        ilock(ip);
+        if (ip->type != T_SYMLINK)
+          break;
+        if(readi(ip, 0, (uint64)path, 0, MAXPATH) != MAXPATH){
+          printf("sys_open readi\n");
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        iunlockput(ip);
+        if((ip = namei(path)) == 0){
+          end_op();
+          return -1;
+        }
+      }
+      if(depth == 0) {
+        end_op();
+        return -1;
+      }
+    }
+    if (omode & O_NOFOLLOW){
+      ilock(ip);
+    }
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -482,5 +507,33 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_symlink()
+{
+  char new[MAXPATH], old[MAXPATH];
+  struct inode *ip;
+
+  if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+    return -1;
+    
+  begin_op();
+  // 0: create T_SYMLINK inode under dp
+  ip = create(new, T_SYMLINK, 0, 0);
+  if (ip == 0) {
+    end_op();
+    return -1;
+  }
+  // 1: write old name in ip->data
+  if(writei(ip, 0, (uint64)old, 0, MAXPATH) != MAXPATH) {
+    printf("sys_symlink sritei\n");
+    iunlock(ip);
+    end_op();
+    return -1;
+  }
+  iunlockput(ip);
+  end_op();
   return 0;
 }

@@ -273,7 +273,14 @@ fork(void)
   if((np = allocproc()) == 0){
     return -1;
   }
-
+  for (int i = 0; i < NVMA; i++){
+     struct VMA *v = &p->vma[i];
+     struct VMA *nv = &np->vma[i];
+      if(v->used) {
+        memmove(nv, v, sizeof(struct VMA));
+        filedup(nv->f);
+      }
+  }
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
@@ -350,6 +357,14 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+  for (int i = 0; i < NVMA; i++) {
+     struct VMA *v=&p->vma[i];
+    if (v->used) {
+      uvmunmap(p->pagetable, v->addr, v->len / PGSIZE, 0);
+      fileclose(v->f);
+      v->used = 0;
     }
   }
 

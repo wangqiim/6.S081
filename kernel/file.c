@@ -12,6 +12,7 @@
 #include "file.h"
 #include "stat.h"
 #include "proc.h"
+#include "fcntl.h"
 
 struct devsw devsw[NDEV];
 struct {
@@ -180,3 +181,46 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+int
+rwconflict(int isread, struct VMA *v)
+{
+  // user read un-readable page
+  if (isread == 1 && ((v->prot & PROT_READ) == 0)) {
+    return -1;
+  }
+  if (isread == 0 && ((v->prot & PROT_WRITE) == 0)) {
+    return -1;
+  }
+  return 0;
+}
+
+int
+lazyvma(uint64 va, int isread)
+{
+  struct proc *p = myproc();
+  pagetable_t pagetable = p->pagetable;
+
+  va = PGROUNDDOWN(va);
+
+  for (int i = 0; i < NVMA; i++) {
+    struct VMA *v = &p->vma[i];
+    if (v->used == 1 && va >= v->addr && va < v->addr + v->len) {
+      if (rwconflict(isread, v) == 1)
+        return -1;
+      char *mem = kalloc();
+      if (mem == 0)
+        return -1;
+      memset(mem, 0, PGSIZE);
+      if (mappages(pagetable, va, PGSIZE, (uint64)mem, (v->prot << 1) | PTE_U) != 0) {
+        kfree(mem);
+        return -1;
+      }
+      ilock(v->f->ip);
+      int off = v->offset + va - v->addr;
+      readi(v->f->ip, 1, va, off, PGSIZE);
+      iunlock(v->f->ip);
+      return 0;
+    }
+  }
+  return -1;
+}

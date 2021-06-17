@@ -484,3 +484,111 @@ sys_pipe(void)
   }
   return 0;
 }
+
+// void *mmap(void *addr, int length, int prot, int flags, int fd, int offset);
+// addr and offset are always zero
+uint64
+sys_mmap(void)
+{
+  uint64 addr;
+  int len;
+  int prot;
+  int flags;
+  struct file *f;
+  int offset;
+  if (argaddr(0, &addr) < 0 || argint(1, &len) < 0 || argint(2, &prot) < 0 || argint(3, &flags) < 0 || argfd(4, 0, &f) < 0 || argint(5, &offset) < 0)
+    return -1;
+
+  if ((flags & MAP_SHARED) && f->readable == 0  && ((prot & PROT_READ) != 0))
+    return -1;
+  if ((flags & MAP_SHARED) && f->writable == 0 && ((prot & PROT_WRITE) != 0))
+    return -1;
+
+  struct proc *p = myproc();
+  for (int i = 0; i < NVMA; i++) {
+    struct VMA *v = &p->vma[i];
+    if (v->used == 0) {
+      v->used = 1;
+      v->addr = p->sz;
+      p->sz += PGROUNDUP(len);
+      v->len = PGROUNDUP(len);
+      v->prot = prot;
+      v->flags = flags;
+      v->f = filedup(f);
+      v->offset = offset;
+      return v->addr;
+    }
+  }
+  return -1;
+}
+
+int
+write_back(struct file *f, int used, uint64 addr, int off, int len)
+{
+  int r = 0;
+  int max = ((MAXOPBLOCKS-1-1-2) / 2) * BSIZE;
+  int i = 0;
+  while (i < len) {
+    int n = len - i;
+    if (n > max)
+      n = max;
+    begin_op();
+    ilock(f->ip);
+    if ((r = writei(f->ip, 1, addr + i, off, n)) > 0)
+      off += r;
+    else {
+      // may be don't alloc (lazy alloc)
+      r = 1;
+      off +=r;
+    }
+    iunlock(f->ip);
+    end_op();
+    i += r;
+  }
+  int ret = (i == len ? len : -1);
+  if (used == 0)
+    fileclose(f);
+
+  return ret;
+}
+
+// int munmap(void *addr, int length);
+// it will either unmap at the start, or at the end, or the whole region 
+// (but not punch a hole in the middle of a region).
+uint64 sys_munmap(void)
+{
+  uint64 addr;
+  int len;
+  if (argaddr(0, &addr) < 0 || argint(1, &len) < 0)
+    return -1;
+    
+  struct proc *p = myproc();
+  for (int i = 0; i < NVMA; i++) {
+    struct VMA *v = &p->vma[i];
+    if (v->used == 1 && addr >= v->addr && addr < v->addr + v->len) {
+      int off = v->offset;
+      if (addr == v->addr) {
+        // unmap at the start
+        if (len > v->len) {
+          panic("munmap len out of bound");
+          return -1;
+        }
+        // unmap the whole region
+        if (len == v->len)
+          v->used = 0;
+        v->addr += len;
+        v->offset += len;
+      }
+      // or unmap at the end
+      v->len -= len;
+      
+      if(v->flags & MAP_SHARED) {
+        if (write_back(v->f, v->used, addr, off, len) == -1)
+          return -1;
+	    }
+      uvmunmap(p->pagetable, PGROUNDDOWN(addr), len/PGSIZE, 0);
+      return 0;
+    }
+  }
+  return -1;
+}
